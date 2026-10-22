@@ -29,7 +29,8 @@ export function priceDistanceToRelative(distance: number): number {
 }
 
 export function pipSize(pipPosition: number): number {
-  return 10 ** -pipPosition;
+  // 1 / 10^n is exact for display (10 ** -4 prints 0.00009999999999999999)
+  return 1 / 10 ** pipPosition;
 }
 
 export function priceToPips(distance: number, pipPosition: number): number {

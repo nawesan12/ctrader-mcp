@@ -2,7 +2,7 @@
 
 Servidor MCP remoto (HTTP) que conecta a Claude con una cuenta **demo** de cTrader mediante la cTrader Open API (JSON sobre WebSocket). Expone tools para leer la cuenta, analizar el mercado con SMC de forma determinista, operar con **gestión de riesgo forzada en el servidor** y llevar un journal con métricas.
 
-> **Estado:** Fases 1–6 implementadas. Falta la verificación final contra la demo real (Fase 7), que se corre desde tu máquina o el VPS. Las decisiones de diseño y las diferencias con la documentación están en [`docs/DECISIONS.md`](docs/DECISIONS.md).
+> **Estado:** las 7 fases están implementadas. Lo que falta verificar contra la demo real (integración, refresh y deploy) está en [`docs/VERIFICATION.md`](docs/VERIFICATION.md). Las decisiones y las diferencias con la documentación están en [`docs/DECISIONS.md`](docs/DECISIONS.md).
 >
 > **Aviso:** nada de esto garantiza rentabilidad. Lo que el servidor sí asegura es que el riesgo de cada operación esté acotado y que todo quede registrado para evaluar la estrategia con datos.
 
@@ -43,6 +43,8 @@ npm test                    # tests unitarios
 INTEGRATION=1 npm run test:integration   # contra la demo real (ver más abajo)
 npm run dev                 # servidor en http://localhost:8787 (/health, /mcp)
 ```
+
+Sin cuenta ni conexión podés probar todo contra un **broker simulado**: `npm run sim` levanta el servidor HTTP real en `http://127.0.0.1:8788/mcp` (bearer `sim-token-sim-token-sim-token-sim-token`) y `bash scripts/inspector-smoke.sh` llama las 15 tools con el MCP Inspector.
 
 Para usarlo local con Claude Code: `MCP_AUTH_TOKEN` en `.env`, y después
 `claude mcp add --transport http ctrader http://localhost:8787/mcp --header "Authorization: Bearer <MCP_AUTH_TOKEN>"`.

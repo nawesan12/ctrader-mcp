@@ -2,7 +2,7 @@
 
 Servidor MCP remoto para operar una cuenta **demo** de cTrader mediante la cTrader Open API (JSON sobre WebSocket).
 
-> Estado: Fases 1–4 (cliente cTrader, motor de riesgo, contexto SMC y tools MCP). Faltan el journal con métricas (5), el servidor HTTP con deploy (6) y la verificación final (7).
+> Estado: Fases 1–5 (cliente cTrader, motor de riesgo, contexto SMC, tools MCP y journal con métricas). Faltan el servidor HTTP con deploy (6) y la verificación final (7).
 
 ## Requisitos
 

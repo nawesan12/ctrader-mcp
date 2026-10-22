@@ -212,7 +212,7 @@ function openingCommission(d: Deal): number | undefined {
   return d.commission !== undefined ? moneyFromProto(d.commission, d.moneyDigits) : undefined;
 }
 
-function inferCloseReason(t: Trade, exit: number | undefined, pipPosition: number | undefined): string {
+export function inferCloseReason(t: Trade, exit: number | undefined, pipPosition: number | undefined): string {
   if (exit === undefined || pipPosition === undefined) return 'external';
   const tol = pipSize(pipPosition);
   if (Math.abs(exit - t.stopLoss) <= tol) return t.stopLoss === t.initialStopLoss ? 'stop_loss' : 'trailing_or_breakeven_stop';

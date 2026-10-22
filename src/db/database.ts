@@ -77,6 +77,19 @@ const MIGRATIONS: string[] = [
    CREATE INDEX trades_order ON trades (order_id);
    CREATE INDEX trades_position ON trades (position_id);
    CREATE INDEX trades_created ON trades (created_at);`,
+  `CREATE TABLE daily_stats (
+     day TEXT PRIMARY KEY,
+     start_balance REAL,
+     end_balance REAL,
+     trades_opened INTEGER NOT NULL DEFAULT 0,
+     trades_closed INTEGER NOT NULL DEFAULT 0,
+     wins INTEGER NOT NULL DEFAULT 0,
+     losses INTEGER NOT NULL DEFAULT 0,
+     pnl REAL NOT NULL DEFAULT 0,
+     r_sum REAL NOT NULL DEFAULT 0,
+     rejections INTEGER NOT NULL DEFAULT 0,
+     updated_at TEXT NOT NULL
+   );`,
 ];
 
 export function openDatabase(path: string): DB {

@@ -303,3 +303,8 @@ export const DealListResSchema = z.object({
   deal: z.array(DealSchema).default([]),
   hasMore: z.boolean().default(false),
 });
+
+export const OrderDetailsResSchema = z.object({
+  order: OrderSchema,
+  deal: z.array(DealSchema).default([]),
+});

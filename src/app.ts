@@ -4,7 +4,9 @@ import { CandleService } from './ctrader/candles.js';
 import type { CTraderClient } from './ctrader/client.js';
 import { SymbolService } from './ctrader/symbols.js';
 import type { DB } from './db/database.js';
+import { DailyStats } from './journal/dailyStats.js';
 import { EventLog } from './journal/events.js';
+import { JournalReconciler } from './journal/reconcile.js';
 import { TradeStore } from './journal/trades.js';
 import type { Logger } from './logger.js';
 import { RiskService } from './risk/context.js';
@@ -37,7 +39,11 @@ export function createApp(d: AppDeps) {
   const events = new EventLog(d.db);
   const trades = new TradeStore(d.db, now);
   const idempotency = new IdempotencyStore(d.db, now);
-  const risk = new RiskService({ client: d.client, symbols, events, limits: riskLimitsFromConfig(d.config), tz: d.config.TZ_SESSIONS, now });
+  const daily = new DailyStats(d.db, d.config.TZ_SESSIONS, now);
+  const risk = new RiskService({
+    client: d.client, symbols, events, limits: riskLimitsFromConfig(d.config), tz: d.config.TZ_SESSIONS, now,
+    onSnapshot: (s) => daily.recordBalance(s.balance, s.now),
+  });
   const smc = new SmcService({ symbols, candles, tz: d.config.TZ_SESSIONS, now });
   const orders = new OrderService({
     client: d.client, risk, symbols, trades, events, idempotency, logger: d.logger, tz: d.config.TZ_SESSIONS, now,
@@ -54,7 +60,16 @@ export function createApp(d: AppDeps) {
     }
   });
 
-  return { client: d.client, symbols, candles, events, trades, idempotency, risk, smc, orders, views, config: d.config };
+  // After every account reconcile (connect + every 5 min) fix anything the journal missed.
+  const journalReconciler = new JournalReconciler({ client: d.client, trades, symbols, logger: d.logger, now });
+  d.client.on('reconciled', () => {
+    journalReconciler
+      .run()
+      .then(() => daily.rebuild())
+      .catch((err: unknown) => d.logger.warn({ err: (err as Error).message }, 'journal reconcile failed'));
+  });
+
+  return { client: d.client, symbols, candles, events, trades, daily, journalReconciler, idempotency, risk, smc, orders, views, config: d.config };
 }
 
 export type App = ReturnType<typeof createApp>;

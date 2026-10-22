@@ -57,6 +57,8 @@ export class SimBroker {
   orders = new Map<number, Obj>();
   positions = new Map<number, Obj>();
   deals: Obj[] = [];
+  /** Final state of every order ever created, for ORDER_DETAILS. */
+  orderHistory = new Map<number, Obj>();
   private nextOrderId = 100;
   private nextPositionId = 500;
   private nextDealId = 900;
@@ -100,8 +102,8 @@ export class SimBroker {
     this.pushSpot(s);
   }
 
-  /** Fill a resting limit order at its price (as the market would). */
-  fillLimit(orderId: number): number {
+  /** Fill a resting limit order at its price (as the market would). `silent` = the event is lost. */
+  fillLimit(orderId: number, silent = false): number {
     const o = this.orders.get(orderId)!;
     this.orders.delete(orderId);
     const td = o.tradeData as Obj;
@@ -112,14 +114,16 @@ export class SimBroker {
     };
     this.positions.set(positionId, position);
     const deal = this.deal(orderId, positionId, td, o.limitPrice as number);
-    this.push(PT.EXECUTION_EVENT, { ctidTraderAccountId: ACC, executionType: 3, order: { ...o, orderStatus: 2, positionId, executionPrice: o.limitPrice }, position, deal });
+    const filled = { ...o, orderStatus: 2, positionId, executionPrice: o.limitPrice };
+    this.orderHistory.set(orderId, filled);
+    if (!silent) this.push(PT.EXECUTION_EVENT, { ctidTraderAccountId: ACC, executionType: 3, order: filled, position, deal });
     return positionId;
   }
 
-  /** Hit the SL/TP of a position at `price` (closing it). */
-  hitLevel(positionId: number, price: number): void {
+  /** Hit the SL/TP of a position at `price` (closing it). `silent` = the event is lost. */
+  hitLevel(positionId: number, price: number, silent = false): void {
     const p = this.positions.get(positionId)!;
-    this.closeVolume(p, (p.tradeData as Obj).volume as number, price, undefined, undefined);
+    this.closeVolume(p, (p.tradeData as Obj).volume as number, price, undefined, silent);
   }
 
   handle(m: Envelope, t: SimTransport): void {
@@ -171,6 +175,13 @@ export class SimBroker {
         });
       case PT.DEAL_LIST_REQ:
         return reply(PT.DEAL_LIST_RES, { ctidTraderAccountId: ACC, deal: this.deals, hasMore: false });
+      case PT.ORDER_DETAILS_REQ: {
+        const o = this.orders.get(p.orderId as number) ?? this.orderHistory.get(p.orderId as number);
+        if (!o) return reply(PT.OA_ERROR_RES, { errorCode: 'ORDER_NOT_FOUND' });
+        return reply(PT.ORDER_DETAILS_RES, { ctidTraderAccountId: ACC, order: o, deal: this.deals.filter((d) => d.orderId === p.orderId) });
+      }
+      case PT.DEAL_LIST_BY_POSITION_ID_REQ:
+        return reply(PT.DEAL_LIST_BY_POSITION_ID_RES, { ctidTraderAccountId: ACC, deal: this.deals.filter((d) => d.positionId === p.positionId), hasMore: false });
       case PT.GET_TRENDBARS_REQ:
         return reply(PT.GET_TRENDBARS_RES, { ctidTraderAccountId: ACC, period: p.period, symbolId: p.symbolId, trendbar: this.trendbars(p) });
     }
@@ -196,6 +207,7 @@ export class SimBroker {
             clientOrderId: p.clientOrderId, expirationTimestamp: p.expirationTimestamp, timeInForce: p.timeInForce,
           };
           this.orders.set(orderId, order);
+          this.orderHistory.set(orderId, order);
           return reply(PT.EXECUTION_EVENT, { ctidTraderAccountId: ACC, executionType: 2, order });
         }
         // MARKET: accepted, then filled at ask (BUY) / bid (SELL)
@@ -228,6 +240,7 @@ export class SimBroker {
         const o = this.orders.get(p.orderId as number);
         if (!o) return reply(PT.OA_ERROR_RES, { errorCode: 'ORDER_NOT_FOUND' });
         this.orders.delete(p.orderId as number);
+        this.orderHistory.set(p.orderId as number, { ...o, orderStatus: 5 });
         return reply(PT.EXECUTION_EVENT, { ctidTraderAccountId: ACC, executionType: 5, order: { ...o, orderStatus: 5 } });
       }
       case PT.AMEND_POSITION_SLTP_REQ: {
@@ -242,7 +255,7 @@ export class SimBroker {
         if (!pos) return reply(PT.OA_ERROR_RES, { errorCode: 'POSITION_NOT_FOUND' });
         const s = this.sym((pos.tradeData as Obj).symbolId as number);
         const buy = (pos.tradeData as Obj).tradeSide === 1;
-        this.closeVolume(pos, p.volume as number, buy ? s.bid : s.ask, reply, m.clientMsgId);
+        this.closeVolume(pos, p.volume as number, buy ? s.bid : s.ask, reply);
         return;
       }
       default:
@@ -250,7 +263,7 @@ export class SimBroker {
     }
   }
 
-  private closeVolume(pos: Obj, volume: number, price: number, reply: ((pt: number, p: Obj) => void) | undefined, _id: string | undefined): void {
+  private closeVolume(pos: Obj, volume: number, price: number, reply: ((pt: number, p: Obj) => void) | undefined, silent = false): void {
     const td = pos.tradeData as Obj;
     const orderId = this.nextOrderId++;
     const closing = { orderId, tradeData: { ...td, volume, tradeSide: td.tradeSide === 1 ? 2 : 1 }, orderType: 1, orderStatus: 1, closingOrder: true, positionId: pos.positionId };
@@ -269,7 +282,7 @@ export class SimBroker {
       closePositionDetail: { entryPrice: pos.price, grossProfit: gross, swap: 0, commission: -300, balance: Math.round(this.balance * 100), moneyDigits: 2, closedVolume: volume },
     };
     this.deals.push(deal);
-    setTimeout(() => this.push(PT.EXECUTION_EVENT, { ctidTraderAccountId: ACC, executionType: 3, order: { ...closing, orderStatus: 2 }, position: after, deal }), 5);
+    if (!silent) setTimeout(() => this.push(PT.EXECUTION_EVENT, { ctidTraderAccountId: ACC, executionType: 3, order: { ...closing, orderStatus: 2 }, position: after, deal }), 5);
   }
 
   private deal(orderId: number, positionId: number, td: Obj, price: number): Obj {

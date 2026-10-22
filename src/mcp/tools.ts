@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { App } from '../app.js';
+import { computePerformance } from '../journal/metrics.js';
 import { TrendbarPeriod, type Timeframe } from '../ctrader/payloadTypes.js';
 
 /**
@@ -279,5 +280,84 @@ export function registerTools(server: McpServer, app: App): void {
       annotations: DESTRUCTIVE,
     },
     (args) => run(() => app.orders.cancelOrder(args)),
+  );
+
+  const dateFilter = z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}(T.*)?$/)
+    .optional()
+    .describe('YYYY-MM-DD or ISO-8601 (UTC), compared with the trade creation time');
+  const toIso = (v: string | undefined) => (v === undefined ? undefined : v.length === 10 ? `${v}T00:00:00.000Z` : new Date(v).toISOString());
+
+  server.registerTool(
+    'get_journal',
+    {
+      title: 'Trade journal',
+      description:
+        'Trades sent through this server (newest first) with thesis, setup, killzone, planned risk, entry/exit, result in account currency and in R, and close reason.',
+      inputSchema: {
+        since: dateFilter,
+        until: dateFilter,
+        symbol: symbol.optional(),
+        status: z.enum(['submitted', 'pending', 'open', 'closed', 'cancelled', 'expired', 'rejected', 'unconfirmed']).optional(),
+        limit: z.number().int().min(1).max(100).default(20),
+        includeThesis: z.boolean().default(true),
+      },
+      annotations: READ,
+    },
+    ({ since, until, symbol: s, status, limit, includeThesis }) =>
+      run(async () => {
+        const key = s ? (await app.symbols.get(s)).key : undefined;
+        const rows = app.trades.list({ since: toIso(since), until: toIso(until), symbol: key, status, limit });
+        return rows.map((t) => ({
+          id: t.id,
+          symbol: t.symbol,
+          side: t.side,
+          type: t.orderType,
+          status: t.status,
+          setup: t.setup,
+          killzone: t.killzone,
+          entry: t.entry ?? t.entryPlanned,
+          stopLoss: t.stopLoss,
+          initialStopLoss: t.initialStopLoss,
+          takeProfit: t.takeProfit,
+          units: t.units,
+          risk: t.riskAmount,
+          pnl: t.pnl === null ? null : Math.round(t.pnl * 100) / 100,
+          r: t.rMultiple,
+          created: t.createdAt,
+          opened: t.openedAt,
+          closed: t.closedAt,
+          exit: t.exitPrice,
+          closeReason: t.closeReason,
+          rejectReason: t.rejectReason,
+          ...(includeThesis ? { thesis: t.thesis } : {}),
+        }));
+      }),
+  );
+
+  server.registerTool(
+    'get_performance',
+    {
+      title: 'Strategy performance',
+      description:
+        'Metrics computed from the journal (closed trades): win rate, average R (expectancy), expectancy in account currency, profit factor, max drawdown, max losing streak, broken down by symbol, killzone and setup, plus the last 14 NY days. Read the notes: small samples are not meaningful.',
+      inputSchema: { since: dateFilter, until: dateFilter, symbol: symbol.optional(), setup: z.string().max(60).optional() },
+      annotations: READ,
+    },
+    ({ since, until, symbol: s, setup: st }) =>
+      run(async () => {
+        const key = s ? (await app.symbols.get(s)).key : undefined;
+        const trades = app.trades.list({ since: toIso(since), until: toIso(until), symbol: key, limit: 100_000 }).filter((t) => st === undefined || t.setup === st);
+        app.daily.rebuild();
+        const open = trades.filter((t) => t.status === 'open' || t.status === 'pending');
+        return {
+          period: { since: since ?? null, until: until ?? null, symbol: key ?? null, setup: st ?? null },
+          ...computePerformance(trades),
+          openOrPending: { count: open.length, plannedRisk: Math.round(open.reduce((a, t) => a + t.riskAmount, 0) * 100) / 100 },
+          rejected: trades.filter((t) => t.status === 'rejected').length,
+          daily: app.daily.list(undefined, 14),
+        };
+      }),
   );
 }

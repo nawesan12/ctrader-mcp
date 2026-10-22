@@ -86,6 +86,8 @@ export interface RiskServiceOptions {
   /** Time zone of the trading day (TZ_SESSIONS). */
   tz: string;
   now?: () => number;
+  /** Called with every fresh account snapshot (used for daily balances). */
+  onSnapshot?: (s: AccountSnapshot) => void;
 }
 
 export interface AccountSnapshot {
@@ -125,7 +127,7 @@ export class RiskService {
     const realizedPnlToday = realizedFromDeals(deals);
     const depositAsset = this.o.symbols.assetName(trader.depositAssetId) ?? String(trader.depositAssetId);
     const exposures = await this.exposures(trader.depositAssetId);
-    return {
+    const snap: AccountSnapshot = {
       now,
       balance,
       equity: balance + unrealizedPnl,
@@ -139,6 +141,8 @@ export class RiskService {
       deals,
       exposures,
     };
+    this.o.onSnapshot?.(snap);
+    return snap;
   }
 
   /**

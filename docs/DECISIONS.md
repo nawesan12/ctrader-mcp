@@ -86,3 +86,14 @@ No se recibió el código Pine de "SMC Lite": `src/analysis/smc.ts` implementa l
 | T10 | Journal | Cada orden crea una fila en `trades` (con tesis, setup, killzone y riesgo planificado) **antes** de enviarse. Los execution events la actualizan: fill de la límite → `open`; cancelación/expiración; cierres parciales acumulan PyG; al cierre total se calculan R y el motivo (el `reason` de `close_position`, o inferido: SL, SL movido o TP). La comisión de apertura se registra al confirmar el fill. | |
 | T11 | Respuestas | JSON compacto. Los rechazos (motor o broker) se devuelven con `isError: true` y los motivos, para que el modelo los note. `get_candles` usa formato columnar (`t,o,h,l,c`). | Ahorra tokens. |
 | T12 | `get_journal` / `get_performance` | Se implementan en la Fase 5, sobre la tabla `trades` que ya se llena acá. | |
+
+## Fase 5: journal y métricas
+
+| # | Tema | Decisión | Motivo |
+|---|------|----------|--------|
+| J1 | Fuente de las métricas | Solo la tabla `trades` (trades enviados por este servidor), y solo los **cerrados**. Un trade es ganador si su PyG (neto de comisiones y swap) es > 0. R = PyG / riesgo planificado al entrar. | Las métricas dependen de una sola fuente que se puede auditar. |
+| J2 | Métricas | Win rate, R medio (= expectancy en R), expectancy en la moneda de la cuenta, profit factor (null si no hay pérdidas), mejor y peor R, R medio de ganadores y de perdedores, max drawdown sobre la curva acumulada (en dinero y en R), racha máxima de pérdidas. Desglose por símbolo, killzone y setup. | Lo que pide el prompt para decidir qué setups dejar. |
+| J3 | Advertencias | Con menos de 30 trades cerrados la respuesta lo advierte. Un setup con ≥ 10 trades y R medio negativo también se marca. | Para no sacar conclusiones con muestras chicas. |
+| J4 | `daily_stats` | Una fila por día de NY. Balance inicial = primer snapshot del día; balance final = el último. Los contadores (aperturas, cierres, ganadores, PyG, R, rechazos) se **recalculan** a partir de `trades` y `events`. | Siempre se pueden regenerar desde el journal. |
+| J5 | Reconciliación del journal | Después de cada reconcile del cliente (al conectar y cada 5 min) se comparan los trades `pending`/`unconfirmed`/`open` con el estado real. Si una orden ya no está, `ProtoOAOrderDetailsReq` dice si se llenó, se canceló o expiró. Si una posición ya no está, `ProtoOADealListByPositionIdReq` aporta los deals de cierre (PyG, precio de salida, hora). Si no hay discrepancias, no se hace ningún request. | Cubre eventos perdidos (servidor caído, desconexión) y cambios hechos desde la app de cTrader. |
+| J6 | Filtros de fecha | `since` y `until` se comparan con la fecha de creación del trade, en UTC (`YYYY-MM-DD` = 00:00 UTC). | Es simple y predecible para el agente. |

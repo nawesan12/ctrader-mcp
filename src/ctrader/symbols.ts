@@ -58,15 +58,17 @@ export class SymbolService {
   private quotes = new Map<number, Quote>();
   /** Conversion chains (symbols only; prices are always live). Key: "from>to". */
   private chains = new Map<string, LightSymbol[]>();
-  readonly spreads = new SpreadTracker();
+  readonly spreads: SpreadTracker;
   private readonly log: Logger;
 
   constructor(
     private readonly client: SymbolClient,
     private readonly db: DB,
     logger: Logger,
+    opts: { spreads?: SpreadTracker } = {},
   ) {
     this.log = logger.child({ component: 'symbols' });
+    this.spreads = opts.spreads ?? new SpreadTracker();
     this.loadFromDb();
     client.on('spot', (ev) => this.onSpot(ev));
   }
@@ -160,6 +162,11 @@ export class SymbolService {
   async pipValuePerUnit(symbol: SymbolInfo, depositAssetId: number): Promise<number> {
     const rate = await this.conversionRate(symbol.quoteAssetId, depositAssetId);
     return pipValuePerUnit(symbol.pipPosition, rate);
+  }
+
+  /** Synchronous lookup of already-loaded details (no broker call). */
+  cached(symbolId: number): SymbolInfo | undefined {
+    return this.details.get(symbolId);
   }
 
   assetName(assetId: number): string | undefined {

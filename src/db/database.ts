@@ -36,6 +36,47 @@ const MIGRATIONS: string[] = [
    );
    CREATE INDEX events_ts ON events (ts);
    CREATE INDEX events_kind_ts ON events (kind, ts);`,
+  `CREATE TABLE idempotency (
+     key TEXT PRIMARY KEY,
+     tool TEXT NOT NULL,
+     request_hash TEXT NOT NULL,
+     status TEXT NOT NULL CHECK (status IN ('pending', 'done')),
+     result TEXT,
+     created_at INTEGER NOT NULL
+   );
+   CREATE TABLE trades (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     idempotency_key TEXT UNIQUE,
+     order_id INTEGER,
+     position_id INTEGER,
+     symbol TEXT NOT NULL,
+     side TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
+     order_type TEXT NOT NULL CHECK (order_type IN ('LIMIT', 'MARKET')),
+     status TEXT NOT NULL CHECK (status IN ('submitted', 'pending', 'open', 'closed', 'cancelled', 'expired', 'rejected', 'unconfirmed')),
+     entry_planned REAL,
+     entry REAL,
+     stop_loss REAL NOT NULL,
+     take_profit REAL NOT NULL,
+     initial_stop_loss REAL NOT NULL,
+     units REAL NOT NULL,
+     risk_amount REAL NOT NULL,
+     deposit_currency TEXT NOT NULL,
+     thesis TEXT NOT NULL,
+     setup TEXT,
+     killzone TEXT,
+     label TEXT,
+     created_at TEXT NOT NULL,
+     opened_at TEXT,
+     closed_at TEXT,
+     exit_price REAL,
+     pnl REAL,
+     r_multiple REAL,
+     close_reason TEXT,
+     reject_reason TEXT
+   );
+   CREATE INDEX trades_order ON trades (order_id);
+   CREATE INDEX trades_position ON trades (position_id);
+   CREATE INDEX trades_created ON trades (created_at);`,
 ];
 
 export function openDatabase(path: string): DB {

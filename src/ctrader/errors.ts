@@ -29,8 +29,14 @@ export class CTraderTimeoutError extends CTraderError {
 
 export class CTraderDisconnectedError extends CTraderError {
   override name = 'CTraderDisconnectedError';
-  constructor(reason = 'connection closed') {
+  /**
+   * true when the request had already been written to the socket: the broker
+   * may have received it, so the outcome is unknown (never blindly retry).
+   */
+  readonly sent: boolean;
+  constructor(reason = 'connection closed', sent = false) {
     super(`cTrader connection unavailable: ${reason}`);
+    this.sent = sent;
   }
 }
 

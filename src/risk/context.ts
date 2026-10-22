@@ -141,7 +141,11 @@ export class RiskService {
     };
   }
 
-  async buildContext(intent: OrderIntent, snap?: AccountSnapshot): Promise<{ ctx: RiskContext; symbol: SymbolInfo }> {
+  /**
+   * `excludeOrderId`: when re-evaluating an existing pending order (amend), its
+   * own risk and its own slot in today's trade count are not counted twice.
+   */
+  async buildContext(intent: OrderIntent, snap?: AccountSnapshot, excludeOrderId?: number): Promise<{ ctx: RiskContext; symbol: SymbolInfo }> {
     const s = snap ?? (await this.snapshot());
     const symbol = await this.o.symbols.get(intent.symbol);
     await this.o.symbols.ensureQuotes([symbol.symbolId]);
@@ -159,18 +163,26 @@ export class RiskService {
       pipValuePerUnit,
       quote: q ? { bid: q.bid, ask: q.ask } : undefined,
       avgSpread: this.o.symbols.spreads.average(symbol.symbolId, s.now),
-      openExposures: s.exposures,
+      openExposures: s.exposures.filter((e) => e.id !== `order:${excludeOrderId}`),
       tradesTodayForSymbol:
-        positionsOpenedToday(s.deals, symbol.symbolId) + pendingOrdersSince(this.o.client.state.getOrders(), symbol.symbolId, s.dayStart),
+        positionsOpenedToday(s.deals, symbol.symbolId) +
+        pendingOrdersSince(
+          this.o.client.state.getOrders().filter((o) => o.orderId !== excludeOrderId),
+          symbol.symbolId,
+          s.dayStart,
+        ),
     };
     return { ctx, symbol };
   }
 
   /** Build context + evaluate. Rejections are always written to the event log. */
-  async evaluate(intent: OrderIntent, opts: { record?: 'preview' | 'order'; idempotencyKey?: string } = {}): Promise<Decision & { symbol?: SymbolInfo; ctx?: RiskContext }> {
+  async evaluate(
+    intent: OrderIntent,
+    opts: { record?: 'preview' | 'order'; idempotencyKey?: string | undefined; excludeOrderId?: number | undefined } = {},
+  ): Promise<Decision & { symbol?: SymbolInfo; ctx?: RiskContext }> {
     let decision: Decision & { symbol?: SymbolInfo; ctx?: RiskContext };
     try {
-      const { ctx, symbol } = await this.buildContext(intent);
+      const { ctx, symbol } = await this.buildContext(intent, undefined, opts.excludeOrderId);
       decision = { ...evaluateOrder(intent, ctx, this.o.limits), symbol, ctx };
     } catch (err) {
       const reason = `context_unavailable: ${(err as Error).message}`;

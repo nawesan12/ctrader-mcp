@@ -520,9 +520,11 @@ export class CTraderClient extends EventEmitter<ClientEvents> {
   }
 
   private rejectAllPending(err: Error): void {
+    // Everything in `pending` was already written to the socket.
+    const sentErr = err instanceof CTraderDisconnectedError ? new CTraderDisconnectedError(err.message.replace(/^cTrader connection unavailable: /, ''), true) : err;
     for (const [id, p] of this.pending) {
       this.settle(id, p);
-      p.reject(err);
+      p.reject(sentErr);
     }
   }
 

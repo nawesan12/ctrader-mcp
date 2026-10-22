@@ -33,3 +33,21 @@ Fuentes: https://help.ctrader.com/open-api/ y los `.proto` oficiales
 ## Entorno de desarrollo
 
 El contenedor cloud donde se construyó la Fase 1 no puede abrir WebSockets ni conectarse a puertos que no sean 443, así que los tests de integración (`INTEGRATION=1`) se corren en la máquina local o en el VPS.
+
+## Fase 2: motor de riesgo
+
+| # | Tema | Decisión | Motivo |
+|---|------|----------|--------|
+| R1 | Dónde vive | `src/risk/engine.ts` es una función pura (`evaluateOrder` / `evaluateAmend`). `RiskService` arma el contexto desde el broker y **toda** tool de órdenes va a pasar por ahí. Si el contexto no se puede construir, la orden se rechaza (*fail closed*). | Testeable regla por regla, y el agente no puede saltearlo. |
+| R2 | Equity | `balance + Σ netUnrealizedPnL` (`ProtoOAGetPositionUnrealizedPnLReq`). | Es lo que da el broker; no incluye la comisión de cierre, como dice la doc. |
+| R3 | Tamaño | `units = equity × riskPct / (pips de SL × valor del pip por unidad)`, piso a `stepVolume`; si queda por debajo de `minVolume`, se rechaza. Las distancias se redondean a los `digits` del símbolo antes de dividir. | Evita que el ruido de punto flotante baje un step entero. El riesgo real nunca supera el objetivo. `riskPct` por trade puede ser menor que `RISK_PER_TRADE_PCT`, nunca mayor. |
+| R4 | Precio de entrada en órdenes de mercado | BUY usa el ask y SELL el bid del spot actual. Sin quote en vivo, se rechaza. | |
+| R5 | Riesgo abierto | Suma del riesgo hasta el SL de **posiciones y órdenes pendientes** (una pendiente puede llenarse). Un SL ya en ganancia cuenta 0. Una posición **sin SL** bloquea toda orden nueva hasta corregirla. Las órdenes de protección (SL/TP) no cuentan. | Criterio conservador. |
+| R6 | Exposición por moneda | Una operación con riesgo R en BASE/QUOTE suma +R a BASE y −R a QUOTE si es compra (al revés si es venta). Se rechaza si la operación **aumenta** el \|neto\| de una moneda **y** el resultado supera el 1,5 % del equity. | Así se permite cerrar o compensar una exposición grande. XAU cuenta como moneda. |
+| R7 | Día de trading | Medianoche de `TZ_SESSIONS` (America/New_York), con DST resuelto vía `Intl`. | El prompt dice "día de NY"; es coherente con la apertura de medianoche NY de la Fase 3. |
+| R8 | Operaciones por símbolo y día | Posiciones distintas abiertas hoy (deals de apertura, de `ProtoOADealListReq`) + órdenes pendientes creadas hoy. Una pendiente cancelada no cuenta. | El broker es la fuente de verdad; no depende del journal. |
+| R9 | Límite de pérdida diaria | `(PnL realizado de hoy + flotante) / balance al inicio del día`, donde el inicio del día = `balance − realizado de hoy`. Realizado = gross + swap + comisiones (de apertura y de cierre) + fee de conversión. | **Supuesto:** no hay depósitos ni retiros durante el día (si los hay, el porcentaje se distorsiona). |
+| R10 | Spread medio "de la sesión" | Media móvil de las últimas 2 h, con una muestra por segundo de los spots. Es válida con ≥ 60 muestras. Sin baseline, las órdenes de mercado se rechazan y las límite se permiten. Al arrancar, el servidor se suscribe a los spots de `ALLOWED_SYMBOLS`. | Interpretación de "sesión"; evita entrar a mercado en spikes de spread. |
+| R11 | Noticias | Solo para órdenes de mercado, como dice el prompt: se rechazan si `now < blockedUntil` o si hay un evento `high` (o sin impacto informado) de la moneda base o quote a ±15 min. | Las órdenes límite no se bloquean por noticias. |
+| R12 | Modificar SL | El SL nuevo no puede alejarse (BUY: ≥ al actual; SELL: ≤). SL y TP siguen siendo obligatorios y no pueden quedar "del otro lado" del precio actual (BUY cierra en bid, SELL en ask). | |
+| R13 | Journal | Cada rechazo se guarda en `events` (`risk_rejected`) con la intención, los motivos y el sizing; los previews aprobados se guardan como `risk_preview`. | La Fase 5 agrega `trades` y `daily_stats`. |

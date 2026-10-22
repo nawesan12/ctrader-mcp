@@ -18,7 +18,10 @@ import { SymbolService } from '../../src/ctrader/symbols.js';
 import { JsonWsTransport } from '../../src/ctrader/transport.js';
 import { openDatabase, type DB } from '../../src/db/database.js';
 import { TokenStore } from '../../src/db/tokenStore.js';
+import { EventLog } from '../../src/journal/events.js';
 import { createLogger } from '../../src/logger.js';
+import { RiskService } from '../../src/risk/context.js';
+import { riskLimitsFromConfig } from '../../src/risk/limits.js';
 
 const enabled = process.env.INTEGRATION === '1';
 
@@ -27,6 +30,7 @@ describe.skipIf(!enabled)('cTrader demo (integration)', () => {
   let symbols: SymbolService;
   let store: TokenStore;
   let db: DB;
+  let risk: RiskService;
 
   beforeAll(async () => {
     if (existsSync('.env')) process.loadEnvFile('.env');
@@ -44,6 +48,7 @@ describe.skipIf(!enabled)('cTrader demo (integration)', () => {
       logger: log,
     });
     symbols = new SymbolService(client, db, log);
+    risk = new RiskService({ client, symbols, events: new EventLog(db), limits: riskLimitsFromConfig(config), tz: config.TZ_SESSIONS });
     await client.start();
   }, 60_000);
 
@@ -104,6 +109,21 @@ describe.skipIf(!enabled)('cTrader demo (integration)', () => {
       console.log(`${name}: pip value per 100k = ${(perUnit * 100_000).toFixed(4)} ${symbols.assetName(deposit)}`);
       expect(perUnit).toBeGreaterThan(0);
     }
+  }, 30_000);
+
+  it('risk engine: evaluates a far-away EURUSD limit against the live account (nothing is sent)', async () => {
+    const eurusd = await symbols.get('EURUSD');
+    await symbols.ensureQuotes([eurusd.symbolId]);
+    const q = await symbols.waitForQuote(eurusd.symbolId, 10_000);
+    const entry = q.bid - 0.02; // 200 pips below
+    const d = await risk.evaluate(
+      { symbol: 'EURUSD', side: 'BUY', orderType: 'LIMIT', entry, stopLoss: entry - 0.002, takeProfit: entry + 0.004 },
+      { record: 'preview' },
+    );
+    // eslint-disable-next-line no-console
+    console.log('preview:', { ok: d.ok, reasons: d.reasons, sizing: d.sizing, equity: d.ctx?.equity, avgSpread: d.ctx?.avgSpread });
+    expect(d.sizing?.slPips).toBeCloseTo(20, 0);
+    expect(d.sizing?.riskAmount).toBeGreaterThan(0);
   }, 30_000);
 
   it('recovers after a manual socket drop: reconnects, re-auths and reconciles', async () => {

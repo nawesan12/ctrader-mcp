@@ -26,6 +26,16 @@ const MIGRATIONS: string[] = [
      data TEXT NOT NULL,
      updated_at TEXT NOT NULL
    );`,
+  `CREATE TABLE events (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     ts TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     symbol TEXT,
+     idempotency_key TEXT,
+     data TEXT NOT NULL
+   );
+   CREATE INDEX events_ts ON events (ts);
+   CREATE INDEX events_kind_ts ON events (kind, ts);`,
 ];
 
 export function openDatabase(path: string): DB {

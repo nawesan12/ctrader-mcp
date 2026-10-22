@@ -6,7 +6,10 @@ import { SymbolService } from './ctrader/symbols.js';
 import { JsonWsTransport } from './ctrader/transport.js';
 import { openDatabase } from './db/database.js';
 import { TokenStore } from './db/tokenStore.js';
+import { EventLog } from './journal/events.js';
 import { createLogger } from './logger.js';
+import { RiskService } from './risk/context.js';
+import { riskLimitsFromConfig } from './risk/limits.js';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -25,6 +28,8 @@ const client = new CTraderClient({
   logger: log,
 });
 const symbols = new SymbolService(client, db, log);
+const events = new EventLog(db);
+export const risk = new RiskService({ client, symbols, events, limits: riskLimitsFromConfig(config), tz: config.TZ_SESSIONS });
 
 client.on('fatal', (err) => {
   log.fatal({ err: err.message }, 'aborting');
@@ -47,6 +52,9 @@ process.on('SIGTERM', () => void shutdown(0));
 try {
   await client.start();
   await symbols.refreshLists();
+  // Spots for allowed symbols from the start, so the spread baseline builds up.
+  const allowed = await Promise.all(config.ALLOWED_SYMBOLS.map((name) => symbols.get(name)));
+  await symbols.ensureQuotes(allowed.map((s) => s.symbolId));
   log.info({ accountId: client.accountId, depositAssetId: client.trader?.depositAssetId }, 'phase 1 client up');
 } catch (err) {
   log.fatal({ err: (err as Error).message }, 'startup failed');

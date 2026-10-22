@@ -1,5 +1,6 @@
 import type { DB } from '../db/database.js';
 import type { Logger } from '../logger.js';
+import { SpreadTracker } from '../risk/spread.js';
 import type { CTraderClient } from './client.js';
 import { conversionRate, normalizeSymbolName, pipValuePerUnit, protoPriceToNumber, type ConversionLeg } from './normalize.js';
 import { PT } from './payloadTypes.js';
@@ -55,6 +56,9 @@ export class SymbolService {
   private byKey = new Map<string, number>();
   private details = new Map<number, SymbolInfo>();
   private quotes = new Map<number, Quote>();
+  /** Conversion chains (symbols only; prices are always live). Key: "from>to". */
+  private chains = new Map<string, LightSymbol[]>();
+  readonly spreads = new SpreadTracker();
   private readonly log: Logger;
 
   constructor(
@@ -129,16 +133,22 @@ export class SymbolService {
   /** Rate to convert 1 unit of `fromAssetId` into `toAssetId` using live quotes. */
   async conversionRate(fromAssetId: number, toAssetId: number): Promise<number> {
     if (fromAssetId === toAssetId) return 1;
-    const res = await this.client.callAccount(
-      PT.SYMBOLS_FOR_CONVERSION_REQ,
-      { firstAssetId: fromAssetId, lastAssetId: toAssetId },
-      PT.SYMBOLS_FOR_CONVERSION_RES,
-      SymbolsForConversionResSchema,
-    );
-    if (res.symbol.length === 0) throw new Error(`No conversion path from asset ${fromAssetId} to ${toAssetId}`);
-    await this.ensureQuotes(res.symbol.map((s) => s.symbolId));
+    const key = `${fromAssetId}>${toAssetId}`;
+    let chain = this.chains.get(key);
+    if (!chain) {
+      const res = await this.client.callAccount(
+        PT.SYMBOLS_FOR_CONVERSION_REQ,
+        { firstAssetId: fromAssetId, lastAssetId: toAssetId },
+        PT.SYMBOLS_FOR_CONVERSION_RES,
+        SymbolsForConversionResSchema,
+      );
+      if (res.symbol.length === 0) throw new Error(`No conversion path from asset ${fromAssetId} to ${toAssetId}`);
+      chain = res.symbol;
+      this.chains.set(key, chain);
+    }
+    await this.ensureQuotes(chain.map((s) => s.symbolId));
     const legs: ConversionLeg[] = [];
-    for (const s of res.symbol) {
+    for (const s of chain) {
       const q = this.quotes.get(s.symbolId) ?? (await this.waitForQuote(s.symbolId));
       if (s.baseAssetId === undefined || s.quoteAssetId === undefined) throw new Error(`Conversion symbol ${s.symbolId} lacks assets`);
       legs.push({ baseAssetId: s.baseAssetId, quoteAssetId: s.quoteAssetId, price: q.mid });
@@ -183,7 +193,9 @@ export class SymbolService {
     const bid = ev.bid !== undefined ? protoPriceToNumber(ev.bid, digits) : prev?.bid;
     const ask = ev.ask !== undefined ? protoPriceToNumber(ev.ask, digits) : prev?.ask;
     if (bid === undefined || ask === undefined || bid <= 0 || ask <= 0) return;
-    this.quotes.set(ev.symbolId, { bid, ask, mid: (bid + ask) / 2, spread: ask - bid, at: ev.timestamp ?? Date.now() });
+    const at = ev.timestamp ?? Date.now();
+    this.quotes.set(ev.symbolId, { bid, ask, mid: (bid + ask) / 2, spread: ask - bid, at });
+    this.spreads.record(ev.symbolId, ask - bid, at);
   }
 
   private merge(s: ProtoSymbol): SymbolInfo {

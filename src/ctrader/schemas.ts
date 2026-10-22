@@ -291,3 +291,15 @@ export const SpotEventSchema = z.object({
   timestamp: int64.optional(),
 });
 export type SpotEvent = z.infer<typeof SpotEventSchema>;
+
+export const UnrealizedPnlResSchema = z.object({
+  positionUnrealizedPnL: z
+    .array(z.object({ positionId: int64, grossUnrealizedPnL: int64, netUnrealizedPnL: int64 }))
+    .default([]),
+  moneyDigits: z.number().int().nonnegative(),
+});
+
+export const DealListResSchema = z.object({
+  deal: z.array(DealSchema).default([]),
+  hasMore: z.boolean().default(false),
+});

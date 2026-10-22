@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CTRADER_DEMO_JSON_URL, loadConfig } from './config.js';
+import { SmcService } from './analysis/service.js';
+import { CandleService } from './ctrader/candles.js';
 import { CTraderClient } from './ctrader/client.js';
 import { SymbolService } from './ctrader/symbols.js';
 import { JsonWsTransport } from './ctrader/transport.js';
@@ -29,6 +31,8 @@ const client = new CTraderClient({
 });
 const symbols = new SymbolService(client, db, log);
 const events = new EventLog(db);
+const candles = new CandleService(client);
+export const smc = new SmcService({ symbols, candles, tz: config.TZ_SESSIONS });
 export const risk = new RiskService({ client, symbols, events, limits: riskLimitsFromConfig(config), tz: config.TZ_SESSIONS });
 
 client.on('fatal', (err) => {

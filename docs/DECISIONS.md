@@ -51,3 +51,21 @@ El contenedor cloud donde se construyó la Fase 1 no puede abrir WebSockets ni c
 | R11 | Noticias | Solo para órdenes de mercado, como dice el prompt: se rechazan si `now < blockedUntil` o si hay un evento `high` (o sin impacto informado) de la moneda base o quote a ±15 min. | Las órdenes límite no se bloquean por noticias. |
 | R12 | Modificar SL | El SL nuevo no puede alejarse (BUY: ≥ al actual; SELL: ≤). SL y TP siguen siendo obligatorios y no pueden quedar "del otro lado" del precio actual (BUY cierra en bid, SELL en ask). | |
 | R13 | Journal | Cada rechazo se guarda en `events` (`risk_rejected`) con la intención, los motivos y el sizing; los previews aprobados se guardan como `risk_preview`. | La Fase 5 agrega `trades` y `daily_stats`. |
+
+## Fase 3: contexto SMC
+
+No se recibió el código Pine de "SMC Lite": `src/analysis/smc.ts` implementa la especificación del prompt. Si se comparte el `.pine`, se alinean los detalles (empates en pivotes, OB, tolerancias).
+
+| # | Tema | Decisión |
+|---|------|----------|
+| S1 | Velas | Solo velas **cerradas** (se descarta la que se está formando). Las funciones son puras. Un test de propiedad verifica, para cada prefijo de una serie aleatoria con semilla, que los BOS/CHoCH y swings ya conocidos coinciden con el análisis completo (no hay repintado). |
+| S2 | Pivotes | `len = 5`. High pivote: estrictamente mayor que las `len` velas de la izquierda y ≥ que las `len` de la derecha (lo mismo para lows). Se confirma en `i + len` y recién desde ahí se usa. |
+| S3 | BOS / CHoCH | Se rompe con un **cierre** más allá del último swing confirmado y no roto. Si la ruptura va contra la tendencia vigente es CHoCH; si no, BOS (la primera ruptura cuenta como BOS). La tendencia del TF es la dirección de la última ruptura (`range` si todavía no hubo ninguna). |
+| S4 | Order Blocks | En cada ruptura se toma la última vela de color opuesto entre las 20 velas previas, con rango completo (high–low). Se invalida con un cierre del otro lado del bloque. Queda `mitigated` si el precio volvió a entrar. Se guardan los 3 vigentes más recientes por lado. |
+| S5 | FVG | Alcista si `low[i] > high[i−2]`; bajista si `high[i] < low[i−2]`. Las mechas lo van rellenando (se reporta el tramo sin rellenar) y se elimina cuando una mecha llega al borde opuesto. Se guardan 5 por lado. |
+| S6 | EQH/EQL | Dos swings del mismo tipo (entre los últimos 5) con diferencia ≤ 10 % del ATR(14) Wilder. No cuenta si una mecha intermedia ya superó el primero. El nivel es el extremo de los dos. Se considera barrido cuando una mecha posterior lo supera. |
+| S7 | Niveles | Se calculan a partir de velas H1 por **día calendario de NY**. Semana forex: lunes a domingo, donde el domingo (apertura de la sesión) pertenece a la semana siguiente. ADR(10) = promedio del rango de los últimos 10 días hábiles completos (sin sábados ni domingos). |
+| S8 | Premium/discount | Rango entre el último swing high y el último swing low confirmados. Equilibrio ± 2 % del rango = `equilibrium`. OTE = retroceso del 62–79 % del tramo (si el low es anterior al high, se mide desde el high hacia abajo; si no, al revés). |
+| S9 | Killzones | En hora de NY con DST: Asia 20:00–24:00, Londres 02:00–05:00, NY AM 07:00–10:00, NY PM 13:30–16:00 (fin exclusivo). |
+| S10 | Bias | Score explicable: cada TF suma ± su peso (H4 2, H1 1,5, M15 1…), y la zona premium/discount del TF mayor suma ±1. Con \|score\| ≥ 35 % del máximo es bullish o bearish; si no, neutral. Un CHoCH en el TF menor contra la tendencia del mayor se reporta como warning. Es una **sugerencia**: el motor de riesgo no la usa. |
+| S11 | Velas desde el broker | Se paginan hacia atrás pidiendo una ventana del doble de largo para cubrir fines de semana. Máximo 500 por llamada. Caché de 20 s por símbolo y TF para cuidar el límite de 5 req/s de pedidos históricos. |

@@ -18,6 +18,8 @@ import { SymbolService } from '../../src/ctrader/symbols.js';
 import { JsonWsTransport } from '../../src/ctrader/transport.js';
 import { openDatabase, type DB } from '../../src/db/database.js';
 import { TokenStore } from '../../src/db/tokenStore.js';
+import { SmcService } from '../../src/analysis/service.js';
+import { CandleService } from '../../src/ctrader/candles.js';
 import { EventLog } from '../../src/journal/events.js';
 import { createLogger } from '../../src/logger.js';
 import { RiskService } from '../../src/risk/context.js';
@@ -31,6 +33,7 @@ describe.skipIf(!enabled)('cTrader demo (integration)', () => {
   let store: TokenStore;
   let db: DB;
   let risk: RiskService;
+  let candles: CandleService;
 
   beforeAll(async () => {
     if (existsSync('.env')) process.loadEnvFile('.env');
@@ -49,6 +52,7 @@ describe.skipIf(!enabled)('cTrader demo (integration)', () => {
     });
     symbols = new SymbolService(client, db, log);
     risk = new RiskService({ client, symbols, events: new EventLog(db), limits: riskLimitsFromConfig(config), tz: config.TZ_SESSIONS });
+    candles = new CandleService(client);
     await client.start();
   }, 60_000);
 
@@ -125,6 +129,23 @@ describe.skipIf(!enabled)('cTrader demo (integration)', () => {
     expect(d.sizing?.slPips).toBeCloseTo(20, 0);
     expect(d.sizing?.riskAmount).toBeGreaterThan(0);
   }, 30_000);
+
+  it('fetches 500 closed H1 candles (paginating if the broker caps count)', async () => {
+    const eurusd = await symbols.get('EURUSD');
+    const bars = await candles.get(eurusd, 'H1', { count: 500 });
+    expect(bars).toHaveLength(500);
+    expect(bars.at(-1)!.t + 3_600_000).toBeLessThanOrEqual(Date.now());
+  }, 60_000);
+
+  it('get_smc_context for EURUSD (H4/H1/M15)', async () => {
+    const smc = new SmcService({ symbols, candles, tz: 'America/New_York' });
+    const ctx = await smc.context('EURUSD');
+    const json = JSON.stringify(ctx);
+    // eslint-disable-next-line no-console
+    console.log(`smc context (${json.length} chars):`, JSON.stringify(ctx, null, 1));
+    expect(ctx.timeframes).toHaveLength(3);
+    expect(json.length).toBeLessThan(6000);
+  }, 60_000);
 
   it('recovers after a manual socket drop: reconnects, re-auths and reconciles', async () => {
     const before = client.state.lastReconcileAt ?? 0;

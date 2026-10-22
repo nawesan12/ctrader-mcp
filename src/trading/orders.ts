@@ -2,7 +2,7 @@ import { killzoneAt } from '../analysis/smc.js';
 import type { CTraderClient } from '../ctrader/client.js';
 import { parsePayload } from '../ctrader/client.js';
 import { CTraderApiError, CTraderDisconnectedError, CTraderTimeoutError } from '../ctrader/errors.js';
-import { normalizeVolume, priceDistanceToRelative, roundTo, unitsToVolume } from '../ctrader/normalize.js';
+import { moneyFromProto, normalizeVolume, priceDistanceToRelative, roundTo, unitsToVolume } from '../ctrader/normalize.js';
 import { ExecutionType, OrderType, PT, TimeInForce, TradeSide } from '../ctrader/payloadTypes.js';
 import { ExecutionEventSchema, type ExecutionEvent, type Order, type Position } from '../ctrader/schemas.js';
 import type { SymbolInfo, SymbolService } from '../ctrader/symbols.js';
@@ -411,7 +411,9 @@ export class OrderService {
       orderId: ev.order?.orderId,
       ...(filled
         ? { status: 'open', positionId: ev.position?.positionId, entry: ev.position?.price ?? ev.order?.executionPrice, openedAt: new Date(this.now()).toISOString(),
-            stopLoss: ev.position?.stopLoss, takeProfit: ev.position?.takeProfit, initialStopLoss: ev.position?.stopLoss, units: ev.position ? ev.position.tradeData.volume / 100 : undefined }
+            stopLoss: ev.position?.stopLoss, takeProfit: ev.position?.takeProfit, initialStopLoss: ev.position?.stopLoss, units: ev.position ? ev.position.tradeData.volume / 100 : undefined,
+            // The fill event can reach the journal listener before orderId is stored: book the opening commission here.
+            pnl: ev.deal?.commission !== undefined ? moneyFromProto(ev.deal.commission, ev.deal.moneyDigits) : undefined }
         : { status: 'pending' }),
     });
     return {

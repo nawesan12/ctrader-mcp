@@ -2,7 +2,7 @@
 
 Servidor MCP remoto para operar una cuenta **demo** de cTrader mediante la cTrader Open API (JSON sobre WebSocket).
 
-> Estado: **Fase 1** (cliente cTrader confiable + normalización). El servidor MCP, el motor de riesgo, el SMC y el journal llegan en las fases siguientes.
+> Estado: Fases 1–4 (cliente cTrader, motor de riesgo, contexto SMC y tools MCP). Faltan el journal con métricas (5), el servidor HTTP con deploy (6) y la verificación final (7).
 
 ## Requisitos
 
@@ -25,7 +25,7 @@ npm ci
 | `npm run dev` | Conecta a la demo, autentica, reconcilia y carga los símbolos |
 | `npm test` | Tests unitarios |
 | `npm run typecheck` / `npm run lint` | Chequeo de tipos y lint |
-| `INTEGRATION=1 npm run test:integration` | Tests contra la demo real: auth, guardia demo, símbolos, velas H1 de EURUSD, valor del pip y reconexión |
+| `INTEGRATION=1 npm run test:integration` | Tests contra la demo real: auth, guardia demo, símbolos, velas, valor del pip, SMC, reconexión y el ciclo **límite lejos del precio → modificar → cancelar** a través de las tools MCP |
 | `INTEGRATION=1 INTEGRATION_REFRESH=1 npm run test:integration` | Además fuerza un refresh de tokens (rota el par y lo persiste) |
 
 ## Estructura

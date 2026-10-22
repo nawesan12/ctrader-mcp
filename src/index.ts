@@ -1,17 +1,12 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { createApp } from './app.js';
 import { CTRADER_DEMO_JSON_URL, loadConfig } from './config.js';
-import { SmcService } from './analysis/service.js';
-import { CandleService } from './ctrader/candles.js';
 import { CTraderClient } from './ctrader/client.js';
-import { SymbolService } from './ctrader/symbols.js';
 import { JsonWsTransport } from './ctrader/transport.js';
 import { openDatabase } from './db/database.js';
 import { TokenStore } from './db/tokenStore.js';
-import { EventLog } from './journal/events.js';
 import { createLogger } from './logger.js';
-import { RiskService } from './risk/context.js';
-import { riskLimitsFromConfig } from './risk/limits.js';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -29,11 +24,7 @@ const client = new CTraderClient({
   tokens,
   logger: log,
 });
-const symbols = new SymbolService(client, db, log);
-const events = new EventLog(db);
-const candles = new CandleService(client);
-export const smc = new SmcService({ symbols, candles, tz: config.TZ_SESSIONS });
-export const risk = new RiskService({ client, symbols, events, limits: riskLimitsFromConfig(config), tz: config.TZ_SESSIONS });
+export const app = createApp({ config, client, db, logger: log });
 
 client.on('fatal', (err) => {
   log.fatal({ err: err.message }, 'aborting');
@@ -55,11 +46,11 @@ process.on('SIGTERM', () => void shutdown(0));
 
 try {
   await client.start();
-  await symbols.refreshLists();
+  await app.symbols.refreshLists();
   // Spots for allowed symbols from the start, so the spread baseline builds up.
-  const allowed = await Promise.all(config.ALLOWED_SYMBOLS.map((name) => symbols.get(name)));
-  await symbols.ensureQuotes(allowed.map((s) => s.symbolId));
-  log.info({ accountId: client.accountId, depositAssetId: client.trader?.depositAssetId }, 'phase 1 client up');
+  const allowed = await Promise.all(config.ALLOWED_SYMBOLS.map((name) => app.symbols.get(name)));
+  await app.symbols.ensureQuotes(allowed.map((s) => s.symbolId));
+  log.info({ accountId: client.accountId, depositAssetId: client.trader?.depositAssetId }, 'cTrader client up (MCP HTTP server arrives in phase 6)');
 } catch (err) {
   log.fatal({ err: (err as Error).message }, 'startup failed');
   await shutdown(1);

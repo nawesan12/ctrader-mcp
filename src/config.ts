@@ -10,6 +10,12 @@ const csv = z
       .filter((x) => x.length > 0),
   );
 
+/** Comma separated list, values kept as written (URLs are case sensitive). */
+const list = z
+  .string()
+  .default('')
+  .transform((s) => s.split(',').map((x) => x.trim()).filter((x) => x.length > 0));
+
 const optionalInt = z
   .string()
   .optional()
@@ -33,7 +39,35 @@ export const ConfigSchema = z.object({
   CTRADER_ACCOUNT_ID: optionalInt,
   // Hard guard: this version only ever talks to the demo environment.
   CTRADER_ENV: z.literal('demo', { error: 'CTRADER_ENV must be "demo" (live is out of scope)' }),
-  MCP_AUTH_TOKEN: z.string().optional(),
+  /** Static bearer (Claude Code, or claude.ai orgs with the request-headers beta). Empty = disabled. */
+  MCP_AUTH_TOKEN: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() !== '' ? v.trim() : undefined))
+    .refine((v) => v === undefined || v.length >= 32, 'MCP_AUTH_TOKEN must be at least 32 characters (e.g. `openssl rand -hex 32`)'),
+  /** Password for the OAuth consent page (claude.ai custom connector). Empty = OAuth disabled. */
+  OAUTH_OWNER_PASSWORD: z
+    .string()
+    .optional()
+    .transform((v) => (v && v !== '' ? v : undefined))
+    .refine((v) => v === undefined || v.length >= 16, 'OAUTH_OWNER_PASSWORD must be at least 16 characters'),
+  /** Public HTTPS base URL, e.g. https://mcp.example.com (the MCP endpoint is <PUBLIC_URL>/mcp). */
+  PUBLIC_URL: z
+    .string()
+    .url()
+    .optional()
+    .transform((v) => (v ? v.replace(/\/+$/, '') : undefined)),
+  /** Extra redirect URIs accepted at client registration (comma separated). */
+  OAUTH_EXTRA_REDIRECT_URIS: list,
+  /** 1 when running behind a reverse proxy (Caddy / cloudflared) that sets X-Forwarded-For. */
+  TRUST_PROXY: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
+  /** Optional comma separated Origin allowlist for /mcp. Empty = Origin is not checked (auth still required). */
+  MCP_ALLOWED_ORIGINS: list,
+  RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(120),
+  HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(8787),
   DATA_DIR: z.string().default('./data'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

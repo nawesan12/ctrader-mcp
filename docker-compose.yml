@@ -1,0 +1,64 @@
+# Usage (from the repo root, with a filled .env):
+#   Caddy (automatic HTTPS, opens 80/443):  docker compose --profile caddy up -d --build
+#   Cloudflare Tunnel (no open ports):      docker compose --profile tunnel up -d --build
+services:
+  ctrader-mcp:
+    build: .
+    image: ctrader-mcp:latest
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+      HOST: 0.0.0.0
+      PORT: "8787"
+      TRUST_PROXY: "1" # only reachable through the proxy below
+    volumes:
+      - ctrader-data:/app/data
+    expose:
+      - "8787" # not published on the host
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2
+    profiles: ["caddy"]
+    depends_on:
+      - ctrader-mcp
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MCP_DOMAIN: ${MCP_DOMAIN:?set MCP_DOMAIN in .env (e.g. mcp.example.com)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    depends_on:
+      - ctrader-mcp
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    restart: unless-stopped
+
+volumes:
+  ctrader-data:
+  caddy-data:
+  caddy-config:

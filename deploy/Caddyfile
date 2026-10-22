@@ -1,0 +1,15 @@
+# Automatic HTTPS (Let's Encrypt) for MCP_DOMAIN; the DNS A/AAAA record must point to this VPS.
+{$MCP_DOMAIN} {
+	encode zstd gzip
+
+	request_body {
+		max_size 1MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	reverse_proxy ctrader-mcp:8787
+}

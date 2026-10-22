@@ -90,6 +90,37 @@ const MIGRATIONS: string[] = [
      rejections INTEGER NOT NULL DEFAULT 0,
      updated_at TEXT NOT NULL
    );`,
+  `CREATE TABLE oauth_clients (
+     client_id TEXT PRIMARY KEY,
+     data TEXT NOT NULL,
+     created_at INTEGER NOT NULL,
+     last_used_at INTEGER
+   );
+   CREATE TABLE oauth_pending (
+     id_hash TEXT PRIMARY KEY,
+     client_id TEXT NOT NULL,
+     params TEXT NOT NULL,
+     expires_at INTEGER NOT NULL
+   );
+   CREATE TABLE oauth_codes (
+     code_hash TEXT PRIMARY KEY,
+     client_id TEXT NOT NULL,
+     code_challenge TEXT NOT NULL,
+     redirect_uri TEXT NOT NULL,
+     resource TEXT,
+     scopes TEXT NOT NULL,
+     expires_at INTEGER NOT NULL
+   );
+   CREATE TABLE oauth_tokens (
+     token_hash TEXT PRIMARY KEY,
+     kind TEXT NOT NULL CHECK (kind IN ('access', 'refresh')),
+     client_id TEXT NOT NULL,
+     scopes TEXT NOT NULL,
+     resource TEXT,
+     expires_at INTEGER NOT NULL,
+     created_at INTEGER NOT NULL
+   );
+   CREATE INDEX oauth_tokens_client ON oauth_tokens (client_id);`,
 ];
 
 export function openDatabase(path: string): DB {
